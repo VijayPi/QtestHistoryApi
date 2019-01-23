@@ -1,0 +1,30 @@
+        "properties": {
+          "<1>": {
+            "oldValue": "a",
+            "newValue": "b"
+          },
+          "<2>": {
+            "oldValue": "a"
+          },
+          "<3>": {
+            "newValue": "b"
+          },
+          "<4>": {
+            "oldValue": ["a", "b"],
+            "newValue": "c"
+          },
+          "<5>": {
+            "oldValue": ["a", "b"],
+            "newValue": ["c", "d"]
+          },
+          "<6>": {
+            "oldValue": "a",
+            "newValue": ["b", "c"]
+          },
+          "<7>": {
+            "oldValue": ["a", "b"]
+          },
+          "<8>": {
+            "newValue": ["c", "d"]
+          }
+        }

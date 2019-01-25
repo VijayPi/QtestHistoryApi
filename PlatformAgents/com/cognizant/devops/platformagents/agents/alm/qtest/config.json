@@ -98,8 +98,7 @@
       "requirements": {
         "Type": {
           "oldValue": "Functional",
-          "newValue": "Non-functional",
-          "limit": 2
+          "newValue": "Non-functional"
         }
       }
     },

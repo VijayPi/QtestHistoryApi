@@ -1,4 +1,4 @@
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
 # Copyright 2017 Cognizant Technology Solutions
 #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may not
@@ -12,17 +12,16 @@
 # WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
 # License for the specific language governing permissions and limitations under
 # the License.
-#-------------------------------------------------------------------------------
-from com.cognizant.devops.platformagents.core.BaseAgent import BaseAgent
-from datetime import datetime as dateTime2
-from dateutil import parser
-from itertools import chain
-
-import datetime
+# -------------------------------------------------------------------------------
+import base64
 import json
 import logging.handlers
-import base64
 import urllib
+from itertools import chain
+
+from dateutil import parser
+
+from com.cognizant.devops.platformagents.core.BaseAgent import BaseAgent
 
 
 class QtestAgent(BaseAgent):
@@ -37,20 +36,19 @@ class QtestAgent(BaseAgent):
         domainName = "InSightsAlmAgent:"
         self.authToken = base64.b64encode(domainName.encode('utf-8'))
         self.token = self.login(self.authToken, username, password, baseUrl)
-        headers = {"accept": "application/json","Authorization": "bearer "+self.token}
+        headers = {"accept": "application/json", "Authorization": "bearer " + self.token}
         pagination = ["test-cases", "requirements", "test-runs", "trace-matrix-report", "defects"]
-        self.username , self.password , self.headers , self.baseUrl = username, password, headers, baseUrl
-        #In this part we addthe module name where pagination is supported.
+        self.username, self.password, self.headers, self.baseUrl = username, password, headers, baseUrl
+        # In this part we addthe module name where pagination is supported.
         try:
-            projectsList = self.getResponse(baseUrl+"/api/v3/projects?assigned=false", 'GET', None, None, None, None, headers)
+            projectsList = self.getResponse(baseUrl + "/api/v3/projects?assigned=false", 'GET', None, None, None, None,
+                                            headers)
             almEntities = self.config.get("dynamicTemplate", {}).get("almEntities", None)
-            historyEntities = self.config.get("dynamicTemplate", {}).get("queryObjectHistory", None)
-            reqIdLatest = list()
             if len(projectsList) > 0:
                 for projects in projectsList:
                     projectName = projects.get("name", None)
                     projectId = projects.get("id", None)
-                    trackingDetails = self.tracking.get(str(projectId),None)
+                    trackingDetails = self.tracking.get(str(projectId), None)
                     if trackingDetails is None:
                         trackingDetails = {}
                         self.tracking[str(projectId)] = trackingDetails
@@ -61,7 +59,6 @@ class QtestAgent(BaseAgent):
                             page_num = 1
                             page_size = 10
                             data = []
-                            reqIdLatest = list()
                             metadata = self.config.get("dynamicTemplate", {}).get("almEntityMetaData", None)
                             almEntityRestDetails = self.almEntityRestDetails(entityType, projectId, baseUrl, pagination)
                             entityUpdatedDate = almEntityRestDetails.get('entityUpdatedDate', None)
@@ -69,20 +66,35 @@ class QtestAgent(BaseAgent):
                                 startFrom = parser.parse(entityUpdatedDate, ignoretz=True)
                             nextPageResponse = True
                             entity_type_available = False
-                            reqIdList = trackingDetails.get(entityType, {}).get("entityIdDict", None)
-                            if reqIdList is None:
-                                reqIdList = []
+                            # Changed
+                            reqIdList = trackingDetails.get(entityType, {}).get("entityIdDict", list())
+                            reqIdHistoryDict, collectHistory = dict(), False
+                            if entityType in self.config.get("dynamicTemplate").get("queryObjectHistory", {}):
+                                collectHistory = True
+                                reqIdHistoryDict = trackingDetails.get(entityType, {})\
+                                    .get("entityIdHistoryDict", dict())
+                            # Changed end
                             while nextPageResponse:
-                                restUrl = almEntityRestDetails.get('restUrl', None) + almEntityRestDetails.get('entityType', None) + "?expandProps=true&expandSteps=false&expand=descendants&page=" + str(page_num) + "&size=" + str(page_size) + almEntityRestDetails.get('dateTimeStamp', None) + urllib.quote_plus(startFrom.strftime(timeStampFormat)) + "Z"
+                                restUrl = almEntityRestDetails.get('restUrl', None) + almEntityRestDetails.get(
+                                    'entityType',
+                                    None) + "?expandProps=true&expandSteps=false&expand=descendants&page=" + str(
+                                    page_num) + "&size=" + str(page_size) + almEntityRestDetails.get('dateTimeStamp',
+                                                                                                     None) + urllib.quote_plus(
+                                    startFrom.strftime(timeStampFormat)) + "Z"
                                 try:
-                                    entityTypeResponse = self.getResponse(restUrl, 'GET', None, None, None, None, headers)
+                                    entityTypeResponse = self.getResponse(restUrl, 'GET', None, None, None, None,
+                                                                          headers)
                                 except Exception as ex1:
                                     nextPageResponse = False
-                                    logging.error("ProjectID: " + str(projectId) + " Type: " +str(entityType) + " URL: " + str(restUrl) + "  " + str(ex1))
+                                    logging.error(
+                                        "ProjectID: " + str(projectId) + " Type: " + str(entityType) + " URL: " + str(
+                                            restUrl) + "  " + str(ex1))
                                     break
-                                if entityType in pagination and "items" in entityTypeResponse and len(entityTypeResponse["items"]) == 0:
+                                if entityType in pagination and "items" in entityTypeResponse and len(
+                                        entityTypeResponse["items"]) == 0:
                                     break
-                                elif entityType in pagination and "items" in entityTypeResponse and len(entityTypeResponse["items"]) > 0:
+                                elif entityType in pagination and "items" in entityTypeResponse and len(
+                                        entityTypeResponse["items"]) > 0:
                                     entityTypeResponse = entityTypeResponse.get("items", {})
                                 else:
                                     pass
@@ -98,33 +110,41 @@ class QtestAgent(BaseAgent):
                                                 if lastUpdated > startFrom:
                                                     responseTemplate = almEntities.get(entityType, None)
                                                     if responseTemplate:
-                                                        injectData= {}
+                                                        injectData = {}
                                                         injectData['projectName'] = projectName
                                                         injectData['projectId'] = projectId
                                                         injectData['almType'] = entityType
-                                                        #EXTRACTION OF JIRA-KEY FROM NAME FIELD IN REQUIREMENTS.
+                                                        # EXTRACTION OF JIRA-KEY FROM NAME FIELD IN REQUIREMENTS.
                                                         if entityType == 'requirements':
                                                             if 'name' in res:
-                                                                #matchObj = re.match( r'(.*)-(.*?) .*', res.get('name', ''), re.M|re.I)
-                                                                #injectData['jiraKey'] = '-'.join(matchObj.group(1, 2))
-                                                                #FOR NOW ASSUMING THAT IN NAME FIELD FIRST WORD WILL BE JIRA KEY.
-                                                                injectData['jiraKey'] = res.get('name', '').split(' ')[0]
-                                                        #EXTRACTION PROPERTY VALUES FROM API RESPONSE.
-                                                        _ObjectId = str(res.get('id'))
-                                                        if _ObjectId not in reqIdList:
-                                                            reqIdList.append(_ObjectId)
-                                                        if entityType in historyEntities:
-                                                            reqIdLatest.append(_ObjectId)
+                                                                # matchObj = re.match( r'(.*)-(.*?) .*', res.get('name', ''), re.M|re.I)
+                                                                # injectData['jiraKey'] = '-'.join(matchObj.group(1, 2))
+                                                                # FOR NOW ASSUMING THAT IN NAME FIELD FIRST WORD WILL BE JIRA KEY.
+                                                                injectData['jiraKey'] = res.get('name', '').split(' ')[
+                                                                    0]
+                                                        # EXTRACTION PROPERTY VALUES FROM API RESPONSE.
+                                                        # changed
+                                                        _ObjecId = str(res.get('id'))
+                                                        if _ObjecId not in reqIdList:
+                                                            reqIdList.append(_ObjecId)
+                                                        if collectHistory:
+                                                            reqIdHistoryDict[_ObjecId] = True
+                                                        # changed end
                                                         if 'properties' in res:
                                                             for property in res.get('properties', []):
-                                                                injectData[str(property.get('field_name').lower()).replace(' ', '')] = property.get('field_value')
-                                                        data += self.parseResponse(responseTemplate, res, injectData)
-                                                        #FOR COLLECTING DATA BEYOND PARENT/ROOT LEVEL. FUNCTION DEFINITION IS AT THE BOTTOM.
-                                                        #self.injectResponseData(data, responseTemplate, res, projectName, projectId, entityType)
+                                                                injectData[
+                                                                    str(property.get('field_name').lower()).replace(' ',
+                                                                                                                    '')] = property.get(
+                                                                    'field_value')
+                                                        data += self.parseResponse(responseTemplate, res,
+                                                                                   injectData)
+                                                        # FOR COLLECTING DATA BEYOND PARENT/ROOT LEVEL. FUNCTION DEFINITION IS AT THE BOTTOM.
+                                                        # self.injectResponseData(data, responseTemplate, res, projectName, projectId, entityType)
                                     except Exception as ex:
                                         nextPageResponse = False
                                         entity_type_available = False
-                                        logging.error("ProjectID: " + str(projectId) + " Type: " +str(entityType) + str(ex))
+                                        logging.error(
+                                            "ProjectID: " + str(projectId) + " Type: " + str(entityType) + str(ex))
                                         break
                                 else:
                                     nextPageResponse = False
@@ -136,39 +156,33 @@ class QtestAgent(BaseAgent):
                                 else:
                                     nextPageResponse = False
                             if entity_type_available and entityUpdatedDate is not None:
-                                if len(reqIdList) > 0 and entityType in extensions.get('linkedArtifacts', {}).get('almEntities', {}):
-                                    trackingDetails[entityType] = {"entityUpdatedDate": entityUpdatedDate, "entityIdDict": reqIdList}
+                                # changed
+                                if len(reqIdList) > 0 and entityType in extensions.get('linkedArtifacts', {}).get(
+                                        'almEntities', {}):
+                                    trackingDetails[entityType] = {"entityUpdatedDate": entityUpdatedDate,
+                                                                   "entityIdDict": reqIdList,
+                                                                   "entityIdHistoryDict": reqIdHistoryDict}
                                 else:
                                     trackingDetails[entityType] = {"entityUpdatedDate": entityUpdatedDate}
+                                # changed end
                             if len(data) > 0:
                                 print data
                                 # self.publishToolsData(data, metadata)
-                            if reqIdLatest:
-                                print self.typePropertyhistoryApi(projectId, entityType, reqIdLatest)
+                            if reqIdHistoryDict:
+                                print len(self.typePropertyhistoryApi(projectId, entityType, reqIdHistoryDict))
                         self.tracking[str(projectId)] = trackingDetails
                         self.updateTrackingJson(self.tracking)
+                        exit(1)
         finally:
             self.logout(self.token, baseUrl)
 
-    def login(self, authToken, username, password, baseUrl):
-        headers_token = {'accept': "application/json",'content-type': "application/x-www-form-urlencoded",'authorization': "Basic "+str(authToken)+""}
-        payload = "grant_type=password&username="+str(username)+"&password="+str(password)
-        tokenResponse = self.getResponse(baseUrl+"/oauth/token", 'POST', None, None, payload, None, headers_token)
-        if "error" in tokenResponse:
-            logging.error("InValid Credentails")
-        return tokenResponse.get("access_token", None)
-
-    def logout(self, token, baseUrl):
-        headerTokenRevoke = {"Authorization": "bearer "+str(token)+""}
-        tokenResponse = self.getResponse(baseUrl+"/oauth/revoke", 'POST', None, None, None, None, headerTokenRevoke)
-
-    def typePropertyhistoryApi(self, projectId, objectType, objectIdList):
+    def typePropertyhistoryApi(self, projectId, objectType, objectIdDict):
         try:
-            print objectType
             toolsHistoryData = list()
-            property = self.config.get("dynamicTemplate", {}).get("queryObjectHistory", {}).get(objectType, {}).get("Type")
+            property = self.config.get("dynamicTemplate", {})\
+                .get("queryObjectHistory", {}).get(objectType, {}).get("Type")
             print property
-            obectQuery = self.constructHistoryObjectQuery(objectIdList)
+            obectQuery = self.constructHistoryObjectQuery(objectIdDict)
             if obectQuery is not "":
                 changeHistory = self.queryObjectHistoryApi(projectId, objectType, objectQuery=obectQuery).get('items')
                 for _Iter in changeHistory:
@@ -177,7 +191,12 @@ class QtestAgent(BaseAgent):
                         oldValue = _FieldChange['old_value']
                         newValue = _FieldChange['new_value']
                         if oldValue == property['oldValue'] and newValue == property['newValue']:
-                            data = {"almType": objectType + "-history", "projectId": projectId, "id": _Iter['linked_object']['object_id'], "propertyModifiedDate": _Iter['created']}
+                            data = {
+                                "almType": objectType + "-history",
+                                "projectId": projectId,
+                                "id": _Iter['linked_object']['object_id'],
+                                "propertyModifiedDate": _Iter['created']
+                            }
                             toolsHistoryData.append(data)
             mappedHistoryData = self.mapToPair(toolsHistoryData)
             print '*' * 20
@@ -187,6 +206,27 @@ class QtestAgent(BaseAgent):
             return list(chain.from_iterable(mappedHistoryData.values()))
         except Exception as err:
             print err
+
+    @staticmethod
+    def listSplitter(dataList, limit=1, reverse=True):
+        if reverse:
+            limit = -limit
+        return dataList[:limit] if limit >= 0 else dataList[limit:]
+
+    def queryObjectHistoryApi(self, projectId, objectType, fields=None,
+                              objectQuery=None, query=None, page=None, pageSize=None):
+        headers = {'Content-Type': 'application/json', 'Authorization': 'bearer ' + self.token}
+        data = {
+            "object_type": objectType,
+            "fields": fields if fields else ["*"],
+            "object_query": objectQuery if objectQuery else "",
+            "query": query if query else ""
+        }
+        print json.dumps(data)
+        url = self.baseUrl + "/api/v3/projects/" + str(projectId) + (
+            "/histories" if not page else "/histories?page={0}&page_size={1}".format(page, pageSize))
+        print url
+        return self.getResponse(url, "POST", None, None, json.dumps(data), None, headers)
 
     @staticmethod
     def mapToPair(data):
@@ -200,51 +240,53 @@ class QtestAgent(BaseAgent):
         return dataPair
 
     @staticmethod
-    def constructHistoryObjectQuery(objectIdList):
+    def constructHistoryObjectQuery(objectIdDict):
         objectQuery = str()
+        objectIdList = filter(lambda objectId: objectIdDict[objectId], objectIdDict)
         objectIdListLen = len(objectIdList)
         print objectIdList
         for _iter in range(0, objectIdListLen):
             _ObjectId = objectIdList[_iter]
-            objectQuery += '\'id\' = \'' + _ObjectId + '\''
-            if _iter != objectIdListLen - 1:
-                objectQuery += ' or '
+            if objectIdDict[_ObjectId]:
+                objectQuery += '\'id\' = \'' + _ObjectId + '\''
+                if _iter != objectIdListLen - 1:
+                    objectQuery += ' or '
+                objectIdDict[_ObjectId] = False
         print objectQuery
         return objectQuery
 
-    @staticmethod
-    def listSplitter(dataList, limit=1, reverse=True):
-        if reverse:
-            limit = -limit
-        return dataList[:limit] if limit >= 0 else dataList[limit:]
+    def login(self, authToken, username, password, baseUrl):
+        headers_token = {'accept': "application/json", 'content-type': "application/x-www-form-urlencoded",
+                         'authorization': "Basic " + str(authToken) + ""}
+        payload = "grant_type=password&username=" + str(username) + "&password=" + str(password)
+        tokenResponse = self.getResponse(baseUrl + "/oauth/token", 'POST', None, None, payload, None, headers_token)
+        if "error" in tokenResponse:
+            logging.error("InValid Credentails")
+        return tokenResponse.get("access_token", None)
 
-    def queryObjectHistoryApi(self, projectId, objectType, fields=None,
-                              objectQuery=None, query=None, page=None, pageSize=None):
-        headers = {'Content-Type': 'application/json', 'Authorization': 'bearer ' + self.token}
-        data = {"object_type": objectType, "fields": fields if fields else ["*"], "object_query": objectQuery if objectQuery else "", "query": query if query else ""}
-        print json.dumps(data)
-        url = self.baseUrl + "/api/v3/projects/" + str(projectId) + ("/histories" if not page else "/histories?page={0}&page_size={1}".format(page, pageSize))
-        print url
-        return self.getResponse(url, "POST", None, None, json.dumps(data), None, headers)
+    def logout(self, token, baseUrl):
+        headerTokenRevoke = {"Authorization": "bearer " + str(token) + ""}
+        tokenResponse = self.getResponse(baseUrl + "/oauth/revoke", 'POST', None, None, None, None, headerTokenRevoke)
 
     def filterDataStructure(self, almType, responseObj):
-        objs = {almType : True}
+        objs = {almType: True}
         for key, value in objs.iteritems():
             if value == True:
                 return responseObj.get(key, None)
 
     def almEntityRestDetails(self, entityType, projectId, baseUrl, paginationList):
         urlExtension = {
-                        "trace-matrix-report": "requirements/trace-matrix-report",
-                        "defects": "defects/last-change"
-                        }
+            "trace-matrix-report": "requirements/trace-matrix-report",
+            "defects": "defects/last-change"
+        }
         restUrl = baseUrl + "/api/v3/projects/" + str(projectId) + "/"
         entityRestDetails = {}
         entityRestDetails['restUrl'] = restUrl
         entityRestDetails['entityType'] = entityType
         entityRestDetails['pagination'] = False
         entityRestDetails['dateTimeStamp'] = '&startTime='
-        entityRestDetails['entityUpdatedDate'] = self.tracking.get(str(projectId), {}).get(entityType, {}).get("entityUpdatedDate", None)
+        entityRestDetails['entityUpdatedDate'] = self.tracking.get(str(projectId), {}).get(entityType, {}).get(
+            "entityUpdatedDate", None)
         if entityType in urlExtension:
             entityRestDetails['entityType'] = str(urlExtension.get(entityType, ""))
         if entityType in paginationList:
@@ -256,15 +298,17 @@ class QtestAgent(BaseAgent):
         if extensions:
             linkedArtifacts = extensions.get('linkedArtifacts', None)
             if linkedArtifacts:
-                self.registerExtension('linkedArtifacts', self.retrieveLinkedArtifacts, linkedArtifacts.get('runSchedule'))
+                self.registerExtension('linkedArtifacts', self.retrieveLinkedArtifacts,
+                                       linkedArtifacts.get('runSchedule'))
             requirementMatrix = extensions.get('requirementMatrix', None)
             if requirementMatrix:
-                self.registerExtension('requirementMatrix', self.retrieveRequirementMatrix, requirementMatrix.get('runSchedule'))
+                self.registerExtension('requirementMatrix', self.retrieveRequirementMatrix,
+                                       requirementMatrix.get('runSchedule'))
 
     def retrieveLinkedArtifacts(self):
         try:
-            token = self.login(self.authToken, self.username , self.password , self.baseUrl)
-            headers = {"accept": "application/json","Authorization": "bearer "+token}
+            token = self.login(self.authToken, self.username, self.password, self.baseUrl)
+            headers = {"accept": "application/json", "Authorization": "bearer " + token}
             linkedArtifacts = self.config.get('dynamicTemplate', {}).get('extensions', {}).get('linkedArtifacts', None)
             trackingDetails = self.tracking
             try:
@@ -281,8 +325,10 @@ class QtestAgent(BaseAgent):
                                 start = 0
                                 end = 15
                                 while dictIsNotEmpty:
-                                    linkedArtifactUrl = "{}/api/v3/projects/{}/linked-artifacts?type={}&ids={}".format(self.baseUrl, str(project), almEntity, ','.join(entityIdDict[start:end]))
-                                    entityTypeResponse = self.getResponse(linkedArtifactUrl, 'GET', None, None, None, None, headers)
+                                    linkedArtifactUrl = "{}/api/v3/projects/{}/linked-artifacts?type={}&ids={}".format(
+                                        self.baseUrl, str(project), almEntity, ','.join(entityIdDict[start:end]))
+                                    entityTypeResponse = self.getResponse(linkedArtifactUrl, 'GET', None, None, None,
+                                                                          None, headers)
                                     for res in entityTypeResponse:
                                         parentId = res.get('id', None)
                                         if 'objects' in res:
@@ -304,7 +350,9 @@ class QtestAgent(BaseAgent):
                             finally:
                                 self.tracking.get(str(project)).get(almEntity, {}).pop('entityIdDict')
                     if len(data) > 0:
-                        metadata = self.config.get("dynamicTemplate", {}).get('extensions', {}).get('linkedArtifacts', {}).get("almEntityMetaData", None)
+                        metadata = self.config.get("dynamicTemplate", {}).get('extensions', {}).get('linkedArtifacts',
+                                                                                                    {}).get(
+                            "almEntityMetaData", None)
                         self.publishToolsData(data, metadata)
                         self.updateTrackingJson(self.tracking)
             except Exception as ex1:
@@ -314,25 +362,29 @@ class QtestAgent(BaseAgent):
 
     def retrieveRequirementMatrix(self):
         dataMatrix = []
-        metadata = self.config.get("dynamicTemplate", {}).get('extensions', {}).get('requirementMatrix', {}).get("almEntityMetaData", None)
+        metadata = self.config.get("dynamicTemplate", {}).get('extensions', {}).get('requirementMatrix', {}).get(
+            "almEntityMetaData", None)
         try:
-            token = self.login(self.authToken, self.username , self.password , self.baseUrl)
-            headers = {"accept": "application/json","Authorization": "bearer "+token}
+            token = self.login(self.authToken, self.username, self.password, self.baseUrl)
+            headers = {"accept": "application/json", "Authorization": "bearer " + token}
             trackingDetails = self.tracking
             for project in trackingDetails:
-                almEntityRestDetails = self.almEntityRestDetails("trace-matrix-report", project, self.baseUrl, ['trace-matrix-report'])
+                almEntityRestDetails = self.almEntityRestDetails("trace-matrix-report", project, self.baseUrl,
+                                                                 ['trace-matrix-report'])
                 nextPageResponse = True
                 page_num = 1
                 page_size = 25
                 while nextPageResponse:
-                    restUrl = almEntityRestDetails.get('restUrl', None) + almEntityRestDetails.get('entityType', None) + "?page=" + str(page_num) + "&size=" + str(page_size)
+                    restUrl = almEntityRestDetails.get('restUrl', None) + almEntityRestDetails.get('entityType',
+                                                                                                   None) + "?page=" + str(
+                        page_num) + "&size=" + str(page_size)
                     try:
                         entityTypeResponse = self.getResponse(restUrl, 'GET', None, None, None, None, headers)
                         if entityTypeResponse.__len__() > 0:
                             for res in entityTypeResponse:
                                 traceMatrixReport = res.get("requirements", {})
                                 for matrix in traceMatrixReport:
-                                    injectData= {}
+                                    injectData = {}
                                     if "testcases" in matrix:
                                         injectData['modulesId'] = res.get('id', None)
                                         injectData['projectId'] = int(project)
@@ -371,5 +423,7 @@ class QtestAgent(BaseAgent):
                 self.injectResponseData(data, responseTemplate, child.get('children', None), projectName, projectId, entityType)
         data += self.parseResponse(responseTemplate, res, injectData)
     '''
+
+
 if __name__ == "__main__":
     QtestAgent()
